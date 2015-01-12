@@ -63,7 +63,8 @@ func (r *RoundRobin) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		r.errHandler.ServeHTTP(w, req, err)
 		return
 	}
-	req.URL = utils.CopyURL(srv.url)
+	req.URL.Host = srv.url.Host
+	req.URL.Scheme = srv.url.Scheme
 	r.next.ServeHTTP(w, req)
 }
 
