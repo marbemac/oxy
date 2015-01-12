@@ -13,6 +13,18 @@ import (
 	"github.com/mailgun/oxy/utils"
 )
 
+type ReqObserver interface {
+	OnRequest(r *http.Request)
+	OnResponse(r *http.Request, resp *http.Response, d time.Duration)
+}
+
+func Observer(r ReqObserver) optSetter {
+	return func(f *Forwarder) error {
+		f.observer = r
+		return nil
+	}
+}
+
 // ReqRewriter can alter request headers and body
 type ReqRewriter interface {
 	Rewrite(r *http.Request)
@@ -54,6 +66,7 @@ type Forwarder struct {
 	roundTripper http.RoundTripper
 	rewriter     ReqRewriter
 	log          utils.Logger
+	observer     ReqObserver
 }
 
 func New(setters ...optSetter) (*Forwarder, error) {
@@ -83,6 +96,10 @@ func New(setters ...optSetter) (*Forwarder, error) {
 }
 
 func (f *Forwarder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if f.observer != nil {
+		f.observer.OnRequest(req)
+	}
+
 	start := time.Now().UTC()
 	response, err := f.roundTripper.RoundTrip(f.copyRequest(req, req.URL))
 	if err != nil {
@@ -91,6 +108,7 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	duration := time.Now().UTC().Sub(start)
 	if req.TLS != nil {
 		f.log.Infof("Round trip: %v, code: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
 			req.URL, response.StatusCode, time.Now().UTC().Sub(start),
@@ -101,6 +119,10 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	} else {
 		f.log.Infof("Round trip: %v, code: %v, duration: %v",
 			req.URL, response.StatusCode, time.Now().UTC().Sub(start))
+	}
+
+	if f.observer != nil {
+		f.observer.OnResponse(req, response, duration)
 	}
 
 	utils.CopyHeaders(w.Header(), response.Header)
