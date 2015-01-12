@@ -102,13 +102,15 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	start := time.Now().UTC()
 	response, err := f.roundTripper.RoundTrip(f.copyRequest(req, req.URL))
+	duration := time.Now().UTC().Sub(start)
 	if err != nil {
-		f.log.Errorf("Error forwarding to %v, err: %v", req.URL, err)
+		f.log.Errorf("Error forwarding to %v, err: %v, resp: %v", req.URL, err, response)
+		if f.observer != nil {
+			f.observer.OnResponse(req, response, duration)
+		}
 		f.errHandler.ServeHTTP(w, req, err)
 		return
 	}
-
-	duration := time.Now().UTC().Sub(start)
 	if req.TLS != nil {
 		f.log.Infof("Round trip: %v, code: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
 			req.URL, response.StatusCode, time.Now().UTC().Sub(start),
