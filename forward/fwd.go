@@ -119,9 +119,10 @@ func (f *Forwarder) copyRequest(req *http.Request, u *url.URL) *http.Request {
 	outReq.URL = utils.CopyURL(req.URL)
 	outReq.URL.Scheme = u.Scheme
 	outReq.URL.Host = u.Host
-	outReq.URL.Opaque = req.RequestURI
-	// raw query is already included in RequestURI, so ignore it to avoid dupes
-	outReq.URL.RawQuery = ""
+	outReq.URL.Opaque = u.Opaque
+	outReq.URL.Path = u.Path
+	outReq.URL.RawQuery = u.RawQuery
+	outReq.URL.Fragment = u.Fragment
 
 	outReq.Proto = "HTTP/1.1"
 	outReq.ProtoMajor = 1
