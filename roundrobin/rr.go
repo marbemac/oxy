@@ -11,7 +11,7 @@ import (
 )
 
 // Weight is an optional functional argument that sets weight of the server
-func Weight(w int) serverSetter {
+func Weight(w int) ServerOption {
 	return func(s *server) error {
 		if w < 0 {
 			return fmt.Errorf("Weight should be >= 0")
@@ -22,7 +22,7 @@ func Weight(w int) serverSetter {
 }
 
 // ErrorHandler is a functional argument that sets error handler of the server
-func ErrorHandler(h utils.ErrorHandler) rrSetter {
+func ErrorHandler(h utils.ErrorHandler) LBOption {
 	return func(s *RoundRobin) error {
 		s.errHandler = h
 		return nil
@@ -39,7 +39,7 @@ type RoundRobin struct {
 	currentWeight int
 }
 
-func New(next http.Handler, opts ...rrSetter) (*RoundRobin, error) {
+func New(next http.Handler, opts ...LBOption) (*RoundRobin, error) {
 	rr := &RoundRobin{
 		next:    next,
 		index:   -1,
@@ -57,16 +57,29 @@ func New(next http.Handler, opts ...rrSetter) (*RoundRobin, error) {
 	return rr, nil
 }
 
+func (r *RoundRobin) Next() http.Handler {
+	return r.next
+}
+
 func (r *RoundRobin) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	srv, err := r.nextServer()
+	url, err := r.NextServer()
 	if err != nil {
 		r.errHandler.ServeHTTP(w, req, err)
 		return
 	}
-	req.Host = srv.url.Host
-	req.URL.Host = srv.url.Host
-	req.URL.Scheme = srv.url.Scheme
+
+	req.Host = url.Host
+	req.URL.Host = url.Host
+	req.URL.Scheme = url.Scheme
 	r.next.ServeHTTP(w, req)
+}
+
+func (r *RoundRobin) NextServer() (*url.URL, error) {
+	srv, err := r.nextServer()
+	if err != nil {
+		return nil, err
+	}
+	return srv.url, nil
 }
 
 func (r *RoundRobin) nextServer() (*server, error) {
@@ -141,7 +154,7 @@ func (rr *RoundRobin) ServerWeight(u *url.URL) (int, bool) {
 }
 
 // In case if server is already present in the load balancer, returns error
-func (rr *RoundRobin) UpsertServer(u *url.URL, options ...serverSetter) error {
+func (rr *RoundRobin) UpsertServer(u *url.URL, options ...ServerOption) error {
 	rr.mutex.Lock()
 	defer rr.mutex.Unlock()
 
@@ -225,8 +238,11 @@ func gcd(a, b int) int {
 	return a
 }
 
-type serverSetter func(*server) error
-type rrSetter func(*RoundRobin) error
+// ServerOption provides various options for server, e.g. weight
+type ServerOption func(*server) error
+
+// LBOption provides options for load balancer
+type LBOption func(*RoundRobin) error
 
 // Set additional parameters for the server can be supplied when adding server
 type server struct {
@@ -246,5 +262,7 @@ type balancerHandler interface {
 	ServeHTTP(w http.ResponseWriter, req *http.Request)
 	ServerWeight(u *url.URL) (int, bool)
 	RemoveServer(u *url.URL) error
-	UpsertServer(u *url.URL, options ...serverSetter) error
+	UpsertServer(u *url.URL, options ...ServerOption) error
+	NextServer() (*url.URL, error)
+	Next() http.Handler
 }
